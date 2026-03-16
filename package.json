@@ -4,7 +4,7 @@
   "description": "CLI for the Capuzzella AI-Powered Website Builder",
   "type": "module",
   "bin": {
-    "capuzzella": "bin/capuzzella.js"
+    "capuzzella": "bin/capuzzella"
   },
   "files": [
     "bin"
