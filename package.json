@@ -1,0 +1,32 @@
+{
+  "name": "capuzzella",
+  "version": "1.0.0",
+  "description": "CLI for the Capuzzella AI-Powered Website Builder",
+  "type": "module",
+  "bin": {
+    "capuzzella": "./bin/capuzzella"
+  },
+  "files": [
+    "bin"
+  ],
+  "keywords": [
+    "capuzzella",
+    "cli",
+    "website-builder",
+    "ai",
+    "cms"
+  ],
+  "author": "Maurice Wipf",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mauricewipf/capuzzella-cli.git"
+  },
+  "homepage": "https://github.com/mauricewipf/capuzzella-cli#readme",
+  "bugs": {
+    "url": "https://github.com/mauricewipf/capuzzella-cli/issues"
+  }
+}

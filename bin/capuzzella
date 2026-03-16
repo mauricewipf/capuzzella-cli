@@ -1,0 +1,411 @@
+#!/usr/bin/env node
+
+import { readFileSync, existsSync } from 'node:fs';
+
+const API_KEY = process.env.CAPUZZELLA_API_KEY;
+const BASE_URL = (process.env.CAPUZZELLA_URL || 'http://localhost:3000').replace(/\/$/, '');
+
+if (!API_KEY) {
+  console.error('Error: CAPUZZELLA_API_KEY environment variable is not set.');
+  console.error('Set it with: export CAPUZZELLA_API_KEY=cap_...');
+  process.exit(1);
+}
+
+const headers = {
+  'Authorization': `Bearer ${API_KEY}`,
+  'Content-Type': 'application/json',
+};
+
+async function request(method, path, body) {
+  const url = `${BASE_URL}${path}`;
+  const opts = { method, headers };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+
+  let res;
+  try {
+    res = await fetch(url, opts);
+  } catch (err) {
+    console.error(`Connection failed: ${err.message}`);
+    process.exit(1);
+  }
+
+  let data;
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    data = await res.json();
+  } else {
+    data = await res.text();
+  }
+
+  if (!res.ok) {
+    const msg = typeof data === 'object' ? data.error || JSON.stringify(data) : data;
+    console.error(`Error ${res.status}: ${msg}`);
+    process.exit(1);
+  }
+
+  return data;
+}
+
+function printJson(data) {
+  console.log(JSON.stringify(data, null, 2));
+}
+
+// ---- Commands ----
+
+const commands = {
+  async 'whoami'() {
+    const data = await request('GET', '/api/me');
+    console.log(`Role: ${data.role}`);
+    if (data.keyName) console.log(`Key:  ${data.keyName} (id ${data.keyId})`);
+    if (data.email) console.log(`User: ${data.email}`);
+  },
+
+  async 'pages list'() {
+    const data = await request('GET', '/api/pages');
+    printJson(data);
+  },
+
+  async 'pages get'(args) {
+    const pagePath = args[0];
+    if (!pagePath) { console.error('Usage: capuzzella pages get <path>'); process.exit(1); }
+    const data = await request('GET', `/api/pages/${pagePath}`);
+    if (typeof data === 'object' && data.html) {
+      console.log(data.html);
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'pages save'(args) {
+    const pagePath = args[0];
+    if (!pagePath) { console.error('Usage: capuzzella pages save <path> --file <file>'); process.exit(1); }
+    const fileIdx = args.indexOf('--file');
+    if (fileIdx === -1 || !args[fileIdx + 1]) { console.error('Missing --file <file>'); process.exit(1); }
+    const filePath = args[fileIdx + 1];
+    if (!existsSync(filePath)) { console.error(`File not found: ${filePath}`); process.exit(1); }
+    const html = readFileSync(filePath, 'utf8');
+    const data = await request('PUT', `/api/pages/${pagePath}`, { html });
+    printJson(data);
+  },
+
+  async 'pages delete'(args) {
+    const pagePath = args[0];
+    if (!pagePath) { console.error('Usage: capuzzella pages delete <path>'); process.exit(1); }
+    const data = await request('DELETE', `/api/pages/${pagePath}`);
+    printJson(data);
+  },
+
+  async 'publish all'() {
+    const data = await request('POST', '/publish/');
+    printJson(data);
+  },
+
+  async 'publish'(args) {
+    const pagePath = args[0];
+    if (!pagePath) { console.error('Usage: capuzzella publish <path>'); process.exit(1); }
+    const data = await request('POST', `/publish/${pagePath}`);
+    printJson(data);
+  },
+
+  async 'unpublish'(args) {
+    const pagePath = args[0];
+    if (!pagePath) { console.error('Usage: capuzzella unpublish <path>'); process.exit(1); }
+    const data = await request('DELETE', `/publish/${pagePath}`);
+    printJson(data);
+  },
+
+  async 'status'(args) {
+    const pagePath = args[0];
+    if (!pagePath) { console.error('Usage: capuzzella status <path>'); process.exit(1); }
+    const data = await request('GET', `/publish/status/${pagePath}`);
+    printJson(data);
+  },
+
+  async 'schedule list'(args) {
+    const showAll = args[0] === 'all';
+    const url = showAll ? '/publish/schedule' : '/publish/schedule?status=pending';
+    const data = await request('GET', url);
+    if (data.schedules && data.schedules.length === 0) {
+      console.log(showAll ? 'No scheduled publishes.' : 'No pending scheduled publishes.');
+      return;
+    }
+    for (const s of data.schedules) {
+      const dt = new Date(s.publish_at * 1000).toISOString();
+      console.log(`  #${s.id}  ${s.page_path}  →  ${dt}  [${s.status}]`);
+    }
+  },
+
+  async 'schedule add'(args) {
+    const pagePath = args[0];
+    const atIdx = args.indexOf('--at');
+    const publishAt = atIdx !== -1 ? args.slice(atIdx + 1).join(' ') : null;
+    if (!pagePath || !publishAt) {
+      console.error('Usage: capuzzella schedule add <path> --at <ISO datetime>');
+      console.error('Example: capuzzella schedule add index.html --at 2026-03-15T09:00:00Z');
+      process.exit(1);
+    }
+    const data = await request('POST', '/publish/schedule', { pagePath, publishAt });
+    if (data.success) {
+      const s = data.schedule;
+      const dt = new Date(s.publish_at * 1000).toISOString();
+      console.log(`Scheduled #${s.id}: ${s.page_path} will publish at ${dt}`);
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'schedule cancel'(args) {
+    const id = args[0];
+    if (!id) { console.error('Usage: capuzzella schedule cancel <id>'); process.exit(1); }
+    const data = await request('DELETE', `/publish/schedule/${id}`);
+    if (data.success) {
+      console.log(`Schedule #${id} cancelled.`);
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'schedule get'(args) {
+    const id = args[0];
+    if (!id) { console.error('Usage: capuzzella schedule get <id>'); process.exit(1); }
+    const data = await request('GET', `/publish/schedule/${id}`);
+    printJson(data);
+  },
+
+  async 'keys list'() {
+    const data = await request('GET', '/settings/api-keys');
+    printJson(data);
+  },
+
+  async 'keys create'(args) {
+    const nameIdx = args.indexOf('--name');
+    const roleIdx = args.indexOf('--role');
+    const limitIdx = args.indexOf('--rate-limit');
+    const name = nameIdx !== -1 ? args[nameIdx + 1] : null;
+    const role = roleIdx !== -1 ? args[roleIdx + 1] : null;
+    const rateLimit = limitIdx !== -1 ? args[limitIdx + 1] : '60';
+    if (!name || !role) { console.error('Usage: capuzzella keys create --name <name> --role <role> [--rate-limit <n>]'); process.exit(1); }
+    const data = await request('POST', '/settings/api-keys', { name, role, rateLimit });
+    if (data.key) {
+      console.log('API key created. Copy it now — it will not be shown again:');
+      console.log(`  ${data.key}`);
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'keys revoke'(args) {
+    const id = args[0];
+    if (!id) { console.error('Usage: capuzzella keys revoke <id>'); process.exit(1); }
+    const data = await request('POST', `/settings/api-keys/${id}/revoke`);
+    printJson(data);
+  },
+
+  async 'keys delete'(args) {
+    const id = args[0];
+    if (!id) { console.error('Usage: capuzzella keys delete <id>'); process.exit(1); }
+    const data = await request('POST', `/settings/api-keys/${id}/delete`);
+    printJson(data);
+  },
+
+  async 'keys audit'(args) {
+    const id = args[0];
+    if (!id) { console.error('Usage: capuzzella keys audit <id>'); process.exit(1); }
+    const data = await request('GET', `/settings/api-keys/${id}/audit`);
+    if (!data.entries || data.entries.length === 0) {
+      console.log('No audit entries.');
+      return;
+    }
+    for (const e of data.entries) {
+      const ts = new Date(e.timestamp).toISOString();
+      console.log(`  ${ts}  ${e.method.padEnd(6)}  ${e.path}`);
+    }
+  },
+
+  async 'ai-provider get'() {
+    const data = await request('GET', '/settings/ai-provider');
+    console.log(`Active provider: ${data.activeProvider}`);
+    for (const p of data.providers) {
+      const status = [];
+      if (p.active) status.push('active');
+      if (p.configured) status.push('configured');
+      const flags = status.length ? ` [${status.join(', ')}]` : '';
+      console.log(`  ${p.id} (${p.name})${flags}`);
+      console.log(`    Model: ${p.selectedModel}`);
+      console.log(`    Available: ${p.models.join(', ')}`);
+    }
+  },
+
+  async 'ai-provider set'(args) {
+    const providerIdx = args.indexOf('--provider');
+    const modelIdx = args.indexOf('--model');
+    const keyIdx = args.indexOf('--api-key');
+    const provider = providerIdx !== -1 ? args[providerIdx + 1] : null;
+    const model = modelIdx !== -1 ? args[modelIdx + 1] : null;
+    const apiKey = keyIdx !== -1 ? args[keyIdx + 1] : null;
+    if (!provider) {
+      console.error('Usage: capuzzella ai-provider set --provider <id> [--model <model>] [--api-key <key>]');
+      console.error('Providers: openai, anthropic');
+      process.exit(1);
+    }
+    const body = { provider };
+    if (model) body.model = model;
+    if (apiKey) body.apiKey = apiKey;
+    const data = await request('POST', '/settings/ai-provider', body);
+    if (data.success) {
+      console.log(`AI provider set to ${data.activeProvider}, model: ${data.model}`);
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'email get'() {
+    const data = await request('GET', '/settings/resend');
+    if (!data.configured) {
+      console.log('Transactional email is not configured.');
+    } else {
+      console.log('Transactional email configuration:');
+      console.log(`  Domain:        ${data.domain}`);
+      console.log(`  Contact Email: ${data.contactEmail}`);
+    }
+  },
+
+  async 'email set'(args) {
+    const keyIdx = args.indexOf('--api-key');
+    const domainIdx = args.indexOf('--domain');
+    const contactIdx = args.indexOf('--contact-email');
+    const apiKey = keyIdx !== -1 ? args[keyIdx + 1] : null;
+    const domain = domainIdx !== -1 ? args[domainIdx + 1] : null;
+    const contactEmail = contactIdx !== -1 ? args[contactIdx + 1] : null;
+    if (!domain || !contactEmail) {
+      console.error('Usage: capuzzella email set --domain <domain> --contact-email <email> [--api-key <key>]');
+      process.exit(1);
+    }
+    const body = { domain, contactEmail };
+    if (apiKey) body.apiKey = apiKey;
+    const data = await request('POST', '/settings/resend', body);
+    if (data.success) {
+      console.log(`Email configured: domain=${data.domain}, contact=${data.contactEmail}`);
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'email remove'() {
+    const data = await request('POST', '/settings/resend', { action: 'remove' });
+    if (data.success) {
+      console.log('Transactional email configuration removed.');
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'domains list'() {
+    const data = await request('GET', '/settings/custom-domains');
+    if (!data.domains || data.domains.length === 0) {
+      console.log('No custom domains configured.');
+      return;
+    }
+    for (const d of data.domains) {
+      const status = d.verificationStatus === 'verified' ? 'verified' : 'pending';
+      console.log(`  ${d.name}  [${status}]  id: ${d.id}`);
+    }
+  },
+
+  async 'domains add'(args) {
+    const domainName = args[0];
+    if (!domainName) {
+      console.error('Usage: capuzzella domains add <domain>');
+      console.error('Example: capuzzella domains add example.com');
+      process.exit(1);
+    }
+    const data = await request('POST', '/settings/custom-domains', { domainName });
+    if (data.success) {
+      console.log(`Custom domain added: ${data.domain.name || domainName}`);
+      console.log('Configure a CNAME or A record at your DNS provider to complete setup.');
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'domains delete'(args) {
+    const domainId = args[0];
+    if (!domainId) {
+      console.error('Usage: capuzzella domains delete <domain-id>');
+      console.error('Use "capuzzella domains list" to find domain IDs.');
+      process.exit(1);
+    }
+    const data = await request('DELETE', `/settings/custom-domains/${domainId}`);
+    if (data.success) {
+      console.log('Custom domain removed.');
+    } else {
+      printJson(data);
+    }
+  },
+};
+
+// ---- Argument Parsing ----
+
+const args = process.argv.slice(2);
+const USAGE = `Capuzzella CLI
+
+Usage: capuzzella <command> [options]
+
+Commands:
+  whoami                                  Show current key role and identity
+
+  pages list                              List all pages
+  pages get <path>                        Get page HTML
+  pages save <path> --file <file>         Save page from local file
+  pages delete <path>                     Delete a page
+
+  publish all                             Publish all drafts
+  publish <path>                          Publish a single page
+  unpublish <path>                        Unpublish a page
+  status <path>                           Check publish status
+
+  schedule list                           List pending scheduled publishes
+  schedule list all                       List all scheduled publishes
+  schedule add <path> --at <datetime>     Schedule a page for future publish
+  schedule get <id>                       Get details of a scheduled publish
+  schedule cancel <id>                    Cancel a pending scheduled publish
+
+  keys list                               List API keys
+  keys create --name <n> --role <r>       Create a new API key
+  keys revoke <id>                        Revoke an API key
+  keys delete <id>                        Delete an API key
+  keys audit <id>                         Show audit log for an API key
+
+  ai-provider get                         Show AI provider configuration
+  ai-provider set --provider <id>         Set active AI provider
+    [--model <model>] [--api-key <key>]
+
+  email get                               Show transactional email config
+  email set --domain <d>                  Configure transactional emails
+    --contact-email <e> [--api-key <k>]
+  email remove                            Remove transactional email config
+
+  domains list                            List custom domains
+  domains add <domain>                    Add a custom domain
+  domains delete <domain-id>              Remove a custom domain
+
+Environment:
+  CAPUZZELLA_API_KEY    API key (required)
+  CAPUZZELLA_URL        Server URL (default: http://localhost:3000)`;
+
+if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+// Match two-word commands first, then single-word
+const twoWord = `${args[0]} ${args[1]}`;
+if (commands[twoWord]) {
+  await commands[twoWord](args.slice(2));
+} else if (commands[args[0]]) {
+  await commands[args[0]](args.slice(1));
+} else {
+  console.error(`Unknown command: ${args.join(' ')}`);
+  console.log(USAGE);
+  process.exit(1);
+}
