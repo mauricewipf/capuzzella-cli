@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const API_KEY = process.env.CAPUZZELLA_API_KEY;
 const BASE_URL = (process.env.CAPUZZELLA_URL || 'http://localhost:3000').replace(/\/$/, '');
@@ -342,6 +342,90 @@ const commands = {
       printJson(data);
     }
   },
+
+  // ---- Component Management Commands (admin/designer only) ----
+
+  async 'components list'() {
+    const data = await request('GET', '/api/components');
+    if (data.components && data.components.length === 0) {
+      console.log('No components found.');
+      return;
+    }
+    for (const name of data.components) {
+      console.log(`  ${name}`);
+    }
+  },
+
+  async 'components get'(args) {
+    const name = args[0];
+    if (!name) { console.error('Usage: capuzzella components get <name>'); process.exit(1); }
+    const data = await request('GET', `/api/components/${name}`);
+    if (typeof data === 'object' && data.component && data.component.html) {
+      console.log(data.component.html);
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'components save'(args) {
+    const name = args[0];
+    if (!name) { console.error('Usage: capuzzella components save <name> --file <file>'); process.exit(1); }
+    const fileIdx = args.indexOf('--file');
+    if (fileIdx === -1 || !args[fileIdx + 1]) { console.error('Missing --file <file>'); process.exit(1); }
+    const filePath = args[fileIdx + 1];
+    if (!existsSync(filePath)) { console.error(`File not found: ${filePath}`); process.exit(1); }
+    const html = readFileSync(filePath, 'utf8');
+    const data = await request('PUT', `/api/components/${name}`, { html });
+    if (data.success) {
+      const action = data.component.created ? 'Created' : 'Updated';
+      console.log(`${action} component: ${data.component.name}`);
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'components delete'(args) {
+    const name = args[0];
+    if (!name) { console.error('Usage: capuzzella components delete <name>'); process.exit(1); }
+    const data = await request('DELETE', `/api/components/${name}`);
+    if (data.success) {
+      console.log(`Deleted component: ${name}`);
+    } else {
+      printJson(data);
+    }
+  },
+
+  // ---- Skills Commands ----
+
+  async 'skills list'() {
+    const data = await request('GET', '/api/skills');
+    if (!data.skills || data.skills.length === 0) {
+      console.log('No skills found.');
+      return;
+    }
+    for (const skill of data.skills) {
+      const tierBadge = skill.tier === 'essential' ? '[essential]' : '[available]';
+      console.log(`  ${skill.name} ${tierBadge}`);
+      console.log(`    id: ${skill.id}`);
+      console.log(`    ${skill.description}`);
+    }
+  },
+
+  async 'skills get'(args) {
+    const id = args[0];
+    if (!id) { console.error('Usage: capuzzella skills get <id>'); process.exit(1); }
+    const data = await request('GET', `/api/skills/${id}`);
+    if (typeof data === 'object' && data.skill && data.skill.content) {
+      console.log(`# ${data.skill.name}`);
+      console.log(`id: ${data.skill.id}`);
+      console.log(`tier: ${data.skill.tier}`);
+      console.log(`description: ${data.skill.description}`);
+      console.log('\n--- Content ---\n');
+      console.log(data.skill.content);
+    } else {
+      printJson(data);
+    }
+  },
 };
 
 // ---- Argument Parsing ----
@@ -358,6 +442,14 @@ Commands:
   pages get <path>                        Get page HTML
   pages save <path> --file <file>         Save page from local file
   pages delete <path>                     Delete a page
+
+  components list                         List all components
+  components get <name>                   Get component HTML
+  components save <name> --file <file>    Save component from local file
+  components delete <name>                Delete a component
+
+  skills list                             List all skills
+  skills get <id>                         Get skill content
 
   publish all                             Publish all drafts
   publish <path>                          Publish a single page

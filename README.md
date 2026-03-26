@@ -2,7 +2,7 @@
 
 Command-line interface for the [Capuzzella](https://capuzzella.com) AI-Powered Website Builder.
 
-Manage pages, publishing, scheduling, API keys, AI providers, email, and custom domains — all from your terminal.
+Manage pages, components, skills, publishing, scheduling, API keys, AI providers, email, and custom domains — all from your terminal.
 
 ## Requirements
 
@@ -96,6 +96,22 @@ capuzzella email remove
 capuzzella domains list
 capuzzella domains add example.com
 capuzzella domains delete <domain-id>
+```
+
+### Components
+
+```bash
+capuzzella components list
+capuzzella components get <name>
+capuzzella components save <name> --file ./component.html
+capuzzella components delete <name>
+```
+
+### Skills
+
+```bash
+capuzzella skills list
+capuzzella skills get <id>
 ```
 
 ## License
