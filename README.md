@@ -112,6 +112,8 @@ capuzzella components delete <name>
 ```bash
 capuzzella skills list
 capuzzella skills get <id>
+capuzzella skills add <id> --file ./skill.md
+capuzzella skills delete <id>
 ```
 
 ## License

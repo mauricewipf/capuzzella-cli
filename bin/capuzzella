@@ -426,6 +426,34 @@ const commands = {
       printJson(data);
     }
   },
+
+  async 'skills add'(args) {
+    const id = args[0];
+    if (!id) { console.error('Usage: capuzzella skills add <id> --file <file>'); process.exit(1); }
+    const fileIdx = args.indexOf('--file');
+    if (fileIdx === -1 || !args[fileIdx + 1]) { console.error('Missing --file <file>'); process.exit(1); }
+    const filePath = args[fileIdx + 1];
+    if (!existsSync(filePath)) { console.error(`File not found: ${filePath}`); process.exit(1); }
+    const rawContent = readFileSync(filePath, 'utf8');
+    const data = await request('PUT', `/api/skills/${id}`, { rawContent });
+    if (data.success) {
+      const action = data.skill.created ? 'Created' : 'Updated';
+      console.log(`${action} skill: ${data.skill.id}`);
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'skills delete'(args) {
+    const id = args[0];
+    if (!id) { console.error('Usage: capuzzella skills delete <id>'); process.exit(1); }
+    const data = await request('DELETE', `/api/skills/${id}`);
+    if (data.success) {
+      console.log(`Deleted skill: ${id}`);
+    } else {
+      printJson(data);
+    }
+  },
 };
 
 // ---- Argument Parsing ----
@@ -450,6 +478,8 @@ Commands:
 
   skills list                             List all skills
   skills get <id>                         Get skill content
+  skills add <id> --file <file>           Add or update a skill from file
+  skills delete <id>                      Delete a skill
 
   publish all                             Publish all drafts
   publish <path>                          Publish a single page
