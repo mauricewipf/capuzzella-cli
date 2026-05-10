@@ -25,6 +25,26 @@ export CAPUZZELLA_URL=https://your-instance.capuzzella.com
 
 `CAPUZZELLA_URL` defaults to `http://localhost:3000` if not set.
 
+### Persisting Configuration
+
+To persist these values for future use, add them to your shell configuration file.
+
+For **zsh** (macOS default, many Linux distributions):
+
+```bash
+echo 'export CAPUZZELLA_API_KEY=cap_...' >> ~/.zshrc
+echo 'export CAPUZZELLA_URL=https://your-instance.capuzzella.com' >> ~/.zshrc
+source ~/.zshrc
+```
+
+For **bash**:
+
+```bash
+echo 'export CAPUZZELLA_API_KEY=cap_...' >> ~/.bashrc
+echo 'export CAPUZZELLA_URL=https://your-instance.capuzzella.com' >> ~/.bashrc
+source ~/.bashrc
+```
+
 ## Usage
 
 ```
