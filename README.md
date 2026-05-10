@@ -43,6 +43,7 @@ capuzzella whoami
 capuzzella pages list
 capuzzella pages get index.html
 capuzzella pages save blog/post.html --file ./post.html
+capuzzella pages duplicate index.html new/index.html
 capuzzella pages delete blog/old.html
 ```
 
@@ -124,6 +125,18 @@ capuzzella assets upload ./image.png
 capuzzella assets delete image.png
 capuzzella assets search feature
 capuzzella assets unused
+```
+
+### Help
+
+```bash
+capuzzella help
+```
+
+### Ping
+
+```bash
+capuzzella ping
 ```
 
 ## License
