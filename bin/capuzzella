@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync, readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 
 const API_KEY = process.env.CAPUZZELLA_API_KEY;
 const BASE_URL = (process.env.CAPUZZELLA_URL || 'http://localhost:3000').replace(/\/$/, '');
@@ -46,8 +47,62 @@ async function request(method, path, body) {
   return data;
 }
 
+async function uploadFile(filePath) {
+  const url = `${BASE_URL}/api/upload`;
+  const fileContent = readFileSync(filePath);
+  const fileName = basename(filePath);
+
+  const boundary = `----FormBoundary${Date.now()}`;
+  const formData = [
+    `--${boundary}`,
+    `Content-Disposition: form-data; name="file"; filename="${fileName}"`,
+    'Content-Type: application/octet-stream',
+    '',
+    fileContent,
+    `--${boundary}--`
+  ].join('\r\n');
+
+  const uploadHeaders = {
+    'Authorization': `Bearer ${API_KEY}`,
+    'Content-Type': `multipart/form-data; boundary=${boundary}`
+  };
+
+  let res;
+  try {
+    res = await fetch(url, { method: 'POST', headers: uploadHeaders, body: formData });
+  } catch (err) {
+    console.error(`Connection failed: ${err.message}`);
+    process.exit(1);
+  }
+
+  let data;
+  const contentType = res.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    data = await res.json();
+  } else {
+    data = await res.text();
+  }
+
+  if (!res.ok) {
+    const msg = typeof data === 'object' ? data.error || JSON.stringify(data) : data;
+    console.error(`Error ${res.status}: ${msg}`);
+    process.exit(1);
+  }
+
+  return data;
+}
+
 function printJson(data) {
   console.log(JSON.stringify(data, null, 2));
+}
+
+// Global --json flag for machine-readable output
+let outputJson = false;
+
+function output(data) {
+  if (outputJson) {
+    printJson(data);
+  }
 }
 
 // ---- Commands ----
@@ -60,9 +115,52 @@ const commands = {
     if (data.email) console.log(`User: ${data.email}`);
   },
 
-  async 'pages list'() {
+  async 'pages list'(args) {
+    const filterIdx = args.indexOf('--filter');
+    const statusIdx = args.indexOf('--status');
+    const filterPattern = filterIdx !== -1 ? args[filterIdx + 1] : null;
+    const statusFilter = statusIdx !== -1 ? args[statusIdx + 1] : null;
+
     const data = await request('GET', '/api/pages');
-    printJson(data);
+    let pages = data.pages || [];
+
+    // Apply path filter
+    if (filterPattern) {
+      pages = pages.filter(p => p.includes(filterPattern));
+    }
+
+    // Apply status filter
+    if (statusFilter) {
+      const statusResults = await Promise.all(
+        pages.map(async (p) => {
+          try {
+            const status = await request('GET', `/publish/status/${p}`);
+            return { page: p, ...status };
+          } catch {
+            return { page: p, isPublished: false, hasUnpublishedChanges: true };
+          }
+        })
+      );
+      if (statusFilter === 'published') {
+        pages = statusResults.filter(s => s.isPublished).map(s => s.page);
+      } else if (statusFilter === 'unpublished') {
+        pages = statusResults.filter(s => !s.isPublished).map(s => s.page);
+      } else if (statusFilter === 'draft') {
+        pages = statusResults.filter(s => s.hasUnpublishedChanges).map(s => s.page);
+      }
+    }
+
+    if (outputJson) {
+      printJson({ pages });
+      return;
+    }
+    if (pages.length === 0) {
+      console.log('No pages found.');
+      return;
+    }
+    for (const page of pages) {
+      console.log(`  ${page}`);
+    }
   },
 
   async 'pages get'(args) {
@@ -95,6 +193,22 @@ const commands = {
     printJson(data);
   },
 
+  async 'pages duplicate'(args) {
+    const sourcePath = args[0];
+    const targetPath = args[1];
+    if (!sourcePath || !targetPath) {
+      console.error('Usage: capuzzella pages duplicate <source> <target>');
+      console.error('Example: capuzzella pages duplicate index.html about.html');
+      process.exit(1);
+    }
+    const data = await request('POST', `/pages/duplicate/${sourcePath}`, { targetPath });
+    if (data.success) {
+      console.log(`Duplicated: ${sourcePath} → ${targetPath}`);
+    } else {
+      printJson(data);
+    }
+  },
+
   async 'publish all'() {
     const data = await request('POST', '/publish/');
     printJson(data);
@@ -125,6 +239,10 @@ const commands = {
     const showAll = args[0] === 'all';
     const url = showAll ? '/publish/schedule' : '/publish/schedule?status=pending';
     const data = await request('GET', url);
+    if (outputJson) {
+      printJson(data);
+      return;
+    }
     if (data.schedules && data.schedules.length === 0) {
       console.log(showAll ? 'No scheduled publishes.' : 'No pending scheduled publishes.');
       return;
@@ -174,7 +292,18 @@ const commands = {
 
   async 'keys list'() {
     const data = await request('GET', '/settings/api-keys');
-    printJson(data);
+    if (outputJson) {
+      printJson(data);
+      return;
+    }
+    if (!data.keys || data.keys.length === 0) {
+      console.log('No API keys found.');
+      return;
+    }
+    for (const k of data.keys) {
+      const status = k.revoked ? '[revoked]' : '[active]';
+      console.log(`  ${k.name} (${k.role}) ${status}  id: ${k.id}`);
+    }
   },
 
   async 'keys create'(args) {
@@ -302,6 +431,10 @@ const commands = {
 
   async 'domains list'() {
     const data = await request('GET', '/settings/custom-domains');
+    if (outputJson) {
+      printJson(data);
+      return;
+    }
     if (!data.domains || data.domains.length === 0) {
       console.log('No custom domains configured.');
       return;
@@ -347,6 +480,10 @@ const commands = {
 
   async 'components list'() {
     const data = await request('GET', '/api/components');
+    if (outputJson) {
+      printJson(data);
+      return;
+    }
     if (data.components && data.components.length === 0) {
       console.log('No components found.');
       return;
@@ -399,6 +536,10 @@ const commands = {
 
   async 'skills list'() {
     const data = await request('GET', '/api/skills');
+    if (outputJson) {
+      printJson(data);
+      return;
+    }
     if (!data.skills || data.skills.length === 0) {
       console.log('No skills found.');
       return;
@@ -454,6 +595,115 @@ const commands = {
       printJson(data);
     }
   },
+
+  // ---- Asset Management Commands ----
+
+  async 'assets list'() {
+    const data = await request('GET', '/api/uploads');
+    if (outputJson) {
+      printJson(data);
+      return;
+    }
+    if (!data.files || data.files.length === 0) {
+      console.log('No assets found.');
+      return;
+    }
+    for (const f of data.files) {
+      const sizeKb = (f.size / 1024).toFixed(1);
+      const dt = new Date(f.modified).toISOString();
+      console.log(`  ${f.name}  (${sizeKb} KB)  ${dt}`);
+    }
+  },
+
+  async 'assets upload'(args) {
+    const filePath = args[0];
+    if (!filePath) { console.error('Usage: capuzzella assets upload <file>'); process.exit(1); }
+    if (!existsSync(filePath)) { console.error(`File not found: ${filePath}`); process.exit(1); }
+    const data = await uploadFile(filePath);
+    if (data.success) {
+      console.log(`Uploaded: ${data.fileName}`);
+      console.log(`URL: ${data.url}`);
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'assets delete'(args) {
+    const fileName = args[0];
+    if (!fileName) { console.error('Usage: capuzzella assets delete <filename>'); process.exit(1); }
+    const data = await request('DELETE', `/api/uploads/${fileName}`);
+    if (data.success) {
+      console.log(`Deleted asset: ${fileName}`);
+    } else {
+      printJson(data);
+    }
+  },
+
+  async 'assets search'(args) {
+    const query = args[0];
+    if (!query) { console.error('Usage: capuzzella assets search <query>'); process.exit(1); }
+    const data = await request('GET', '/api/uploads');
+    const lowerQuery = query.toLowerCase();
+    const matches = data.files ? data.files.filter(f => f.name.toLowerCase().includes(lowerQuery)) : [];
+    if (outputJson) {
+      printJson({ query, matches });
+      return;
+    }
+    if (!data.files || data.files.length === 0) {
+      console.log('No assets found.');
+      return;
+    }
+    if (matches.length === 0) {
+      console.log(`No assets matching "${query}".`);
+      return;
+    }
+    console.log(`Found ${matches.length} asset(s) matching "${query}":`);
+    for (const f of matches) {
+      const sizeKb = (f.size / 1024).toFixed(1);
+      const dt = new Date(f.modified).toISOString();
+      console.log(`  ${f.name}  (${sizeKb} KB)  ${dt}`);
+    }
+  },
+
+  async 'assets unused'() {
+    const data = await request('GET', '/api/uploads/unused');
+    const unused = data.unused || [];
+
+    if (outputJson) {
+      printJson({ unused });
+      return;
+    }
+
+    if (unused.length === 0) {
+      console.log('All assets are referenced in pages.');
+      return;
+    }
+
+    console.log(`${unused.length} unused asset(s):`);
+    for (const f of unused) {
+      const sizeKb = (f.size / 1024).toFixed(1);
+      const dt = new Date(f.modified).toISOString();
+      console.log(`  ${f.name}  (${sizeKb} KB)  ${dt}`);
+    }
+  },
+
+  async 'help'() {
+    console.log(USAGE);
+  },
+
+  async 'ping'() {
+    const start = Date.now();
+    try {
+      const data = await request('GET', '/api/me');
+      const elapsed = Date.now() - start;
+      console.log(`OK: Connected to ${BASE_URL} in ${elapsed}ms`);
+      console.log(`Role: ${data.role}`);
+      if (data.keyName) console.log(`Key: ${data.keyName}`);
+    } catch (err) {
+      console.error(`Failed to connect to ${BASE_URL}`);
+      process.exit(1);
+    }
+  },
 };
 
 // ---- Argument Parsing ----
@@ -466,10 +716,12 @@ Usage: capuzzella <command> [options]
 Commands:
   whoami                                  Show current key role and identity
 
-  pages list                              List all pages
+  pages list [--filter <pattern>]         List all pages
+            [--status <published|unpublished|draft>]
   pages get <path>                        Get page HTML
   pages save <path> --file <file>         Save page from local file
   pages delete <path>                     Delete a page
+  pages duplicate <source> <target>       Duplicate a page
 
   components list                         List all components
   components get <name>                   Get component HTML
@@ -480,6 +732,12 @@ Commands:
   skills get <id>                         Get skill content
   skills add <id> --file <file>           Add or update a skill from file
   skills delete <id>                      Delete a skill
+
+  assets list                             List all uploaded assets
+  assets upload <file>                    Upload an asset (image, PDF, etc.)
+  assets delete <filename>                Delete an asset
+  assets search <query>                   Search assets by name
+  assets unused                           List assets not referenced in pages
 
   publish all                             Publish all drafts
   publish <path>                          Publish a single page
@@ -511,23 +769,37 @@ Commands:
   domains add <domain>                    Add a custom domain
   domains delete <domain-id>              Remove a custom domain
 
+  help                                    Show this help message
+  ping                                    Check server connectivity
+
+Options:
+  --json                                  Output in JSON format (list commands)
+
 Environment:
   CAPUZZELLA_API_KEY    API key (required)
   CAPUZZELLA_URL        Server URL (default: http://localhost:3000)`;
 
-if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
+// Check for --json flag anywhere in args
+if (args.includes('--json')) {
+  outputJson = true;
+}
+
+// Remove --json from args before processing
+const filteredArgs = args.filter(a => a !== '--json');
+
+if (filteredArgs.length === 0 || filteredArgs[0] === '--help' || filteredArgs[0] === '-h') {
   console.log(USAGE);
   process.exit(0);
 }
 
 // Match two-word commands first, then single-word
-const twoWord = `${args[0]} ${args[1]}`;
+const twoWord = `${filteredArgs[0]} ${filteredArgs[1]}`;
 if (commands[twoWord]) {
-  await commands[twoWord](args.slice(2));
-} else if (commands[args[0]]) {
-  await commands[args[0]](args.slice(1));
+  await commands[twoWord](filteredArgs.slice(2));
+} else if (commands[filteredArgs[0]]) {
+  await commands[filteredArgs[0]](filteredArgs.slice(1));
 } else {
-  console.error(`Unknown command: ${args.join(' ')}`);
+  console.error(`Unknown command: ${filteredArgs.join(' ')}`);
   console.log(USAGE);
   process.exit(1);
 }

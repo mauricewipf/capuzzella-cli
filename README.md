@@ -116,6 +116,16 @@ capuzzella skills add <id> --file ./skill.md
 capuzzella skills delete <id>
 ```
 
+### Assets
+
+```bash
+capuzzella assets list
+capuzzella assets upload ./image.png
+capuzzella assets delete image.png
+capuzzella assets search feature
+capuzzella assets unused
+```
+
 ## License
 
 See [LICENSE.md](LICENSE.md).
