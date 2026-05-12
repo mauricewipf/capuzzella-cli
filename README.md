@@ -25,26 +25,6 @@ export CAPUZZELLA_URL=https://your-instance.capuzzella.com
 
 `CAPUZZELLA_URL` defaults to `http://localhost:3000` if not set.
 
-### Persisting Configuration
-
-To persist these values for future use, add them to your shell configuration file.
-
-For **zsh** (macOS default, many Linux distributions):
-
-```bash
-echo 'export CAPUZZELLA_API_KEY=cap_...' >> ~/.zshrc
-echo 'export CAPUZZELLA_URL=https://your-instance.capuzzella.com' >> ~/.zshrc
-source ~/.zshrc
-```
-
-For **bash**:
-
-```bash
-echo 'export CAPUZZELLA_API_KEY=cap_...' >> ~/.bashrc
-echo 'export CAPUZZELLA_URL=https://your-instance.capuzzella.com' >> ~/.bashrc
-source ~/.bashrc
-```
-
 ## Usage
 
 ```
@@ -63,8 +43,8 @@ capuzzella whoami
 capuzzella pages list
 capuzzella pages get index.html
 capuzzella pages save blog/post.html --file ./post.html
-capuzzella pages duplicate index.html new/index.html
 capuzzella pages delete blog/old.html
+capuzzella pages download ./backup
 ```
 
 ### Publishing
@@ -145,18 +125,7 @@ capuzzella assets upload ./image.png
 capuzzella assets delete image.png
 capuzzella assets search feature
 capuzzella assets unused
-```
-
-### Help
-
-```bash
-capuzzella help
-```
-
-### Ping
-
-```bash
-capuzzella ping
+capuzzella assets download ./assets-backup
 ```
 
 ## License
