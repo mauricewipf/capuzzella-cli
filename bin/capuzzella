@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync } from 'node:fs';
-import { basename } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 
 const API_KEY = process.env.CAPUZZELLA_API_KEY;
 const BASE_URL = (process.env.CAPUZZELLA_URL || 'http://localhost:3000').replace(/\/$/, '');
@@ -201,12 +201,32 @@ const commands = {
       console.error('Example: capuzzella pages duplicate index.html about.html');
       process.exit(1);
     }
-    const data = await request('POST', `/pages/duplicate/${sourcePath}`, { targetPath });
+    const data = await request('POST', `/console/pages/duplicate/${sourcePath}`, { targetPath });
     if (data.success) {
       console.log(`Duplicated: ${sourcePath} → ${targetPath}`);
     } else {
       printJson(data);
     }
+  },
+
+  async 'pages download'(args) {
+    const outputDir = args[0] || '.';
+    const url = `${BASE_URL}/api/download-all`;
+    const res = await fetch(url, { method: 'GET', headers: { 'Authorization': `Bearer ${API_KEY}` } });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const msg = data.error || `Error ${res.status}`;
+      console.error(`Download failed: ${msg}`);
+      process.exit(1);
+    }
+
+    const content = await res.bytes();
+    const outputPath = join(outputDir, 'public.tar.gz');
+
+    mkdirSync(outputDir, { recursive: true });
+    writeFileSync(outputPath, content);
+    console.log(`Downloaded: ${outputPath} (${content.length} bytes)`);
   },
 
   async 'publish all'() {
@@ -291,7 +311,7 @@ const commands = {
   },
 
   async 'keys list'() {
-    const data = await request('GET', '/settings/api-keys');
+    const data = await request('GET', '/console/settings/api-keys');
     if (outputJson) {
       printJson(data);
       return;
@@ -314,7 +334,7 @@ const commands = {
     const role = roleIdx !== -1 ? args[roleIdx + 1] : null;
     const rateLimit = limitIdx !== -1 ? args[limitIdx + 1] : '60';
     if (!name || !role) { console.error('Usage: capuzzella keys create --name <name> --role <role> [--rate-limit <n>]'); process.exit(1); }
-    const data = await request('POST', '/settings/api-keys', { name, role, rateLimit });
+    const data = await request('POST', '/console/settings/api-keys', { name, role, rateLimit });
     if (data.key) {
       console.log('API key created. Copy it now — it will not be shown again:');
       console.log(`  ${data.key}`);
@@ -326,21 +346,21 @@ const commands = {
   async 'keys revoke'(args) {
     const id = args[0];
     if (!id) { console.error('Usage: capuzzella keys revoke <id>'); process.exit(1); }
-    const data = await request('POST', `/settings/api-keys/${id}/revoke`);
+    const data = await request('POST', `/console/settings/api-keys/${id}/revoke`);
     printJson(data);
   },
 
   async 'keys delete'(args) {
     const id = args[0];
     if (!id) { console.error('Usage: capuzzella keys delete <id>'); process.exit(1); }
-    const data = await request('POST', `/settings/api-keys/${id}/delete`);
+    const data = await request('POST', `/console/settings/api-keys/${id}/delete`);
     printJson(data);
   },
 
   async 'keys audit'(args) {
     const id = args[0];
     if (!id) { console.error('Usage: capuzzella keys audit <id>'); process.exit(1); }
-    const data = await request('GET', `/settings/api-keys/${id}/audit`);
+    const data = await request('GET', `/console/settings/api-keys/${id}/audit`);
     if (!data.entries || data.entries.length === 0) {
       console.log('No audit entries.');
       return;
@@ -352,7 +372,7 @@ const commands = {
   },
 
   async 'ai-provider get'() {
-    const data = await request('GET', '/settings/ai-provider');
+    const data = await request('GET', '/console/settings/ai-provider');
     console.log(`Active provider: ${data.activeProvider}`);
     for (const p of data.providers) {
       const status = [];
@@ -380,7 +400,7 @@ const commands = {
     const body = { provider };
     if (model) body.model = model;
     if (apiKey) body.apiKey = apiKey;
-    const data = await request('POST', '/settings/ai-provider', body);
+    const data = await request('POST', '/console/settings/ai-provider', body);
     if (data.success) {
       console.log(`AI provider set to ${data.activeProvider}, model: ${data.model}`);
     } else {
@@ -389,7 +409,7 @@ const commands = {
   },
 
   async 'email get'() {
-    const data = await request('GET', '/settings/resend');
+    const data = await request('GET', '/console/settings/resend');
     if (!data.configured) {
       console.log('Transactional email is not configured.');
     } else {
@@ -412,7 +432,7 @@ const commands = {
     }
     const body = { domain, contactEmail };
     if (apiKey) body.apiKey = apiKey;
-    const data = await request('POST', '/settings/resend', body);
+    const data = await request('POST', '/console/settings/resend', body);
     if (data.success) {
       console.log(`Email configured: domain=${data.domain}, contact=${data.contactEmail}`);
     } else {
@@ -421,7 +441,7 @@ const commands = {
   },
 
   async 'email remove'() {
-    const data = await request('POST', '/settings/resend', { action: 'remove' });
+    const data = await request('POST', '/console/settings/resend', { action: 'remove' });
     if (data.success) {
       console.log('Transactional email configuration removed.');
     } else {
@@ -430,7 +450,7 @@ const commands = {
   },
 
   async 'domains list'() {
-    const data = await request('GET', '/settings/custom-domains');
+    const data = await request('GET', '/console/settings/custom-domains');
     if (outputJson) {
       printJson(data);
       return;
@@ -452,7 +472,7 @@ const commands = {
       console.error('Example: capuzzella domains add example.com');
       process.exit(1);
     }
-    const data = await request('POST', '/settings/custom-domains', { domainName });
+    const data = await request('POST', '/console/settings/custom-domains', { domainName });
     if (data.success) {
       console.log(`Custom domain added: ${data.domain.name || domainName}`);
       console.log('Configure a CNAME or A record at your DNS provider to complete setup.');
@@ -468,7 +488,7 @@ const commands = {
       console.error('Use "capuzzella domains list" to find domain IDs.');
       process.exit(1);
     }
-    const data = await request('DELETE', `/settings/custom-domains/${domainId}`);
+    const data = await request('DELETE', `/console/settings/custom-domains/${domainId}`);
     if (data.success) {
       console.log('Custom domain removed.');
     } else {
@@ -687,6 +707,26 @@ const commands = {
     }
   },
 
+  async 'assets download'(args) {
+    const outputDir = args[0] || '.';
+    const url = `${BASE_URL}/api/download-assets`;
+    const res = await fetch(url, { method: 'GET', headers: { 'Authorization': `Bearer ${API_KEY}` } });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const msg = data.error || `Error ${res.status}`;
+      console.error(`Download failed: ${msg}`);
+      process.exit(1);
+    }
+
+    const content = await res.bytes();
+    const outputPath = join(outputDir, 'assets.tar.gz');
+
+    mkdirSync(outputDir, { recursive: true });
+    writeFileSync(outputPath, content);
+    console.log(`Downloaded: ${outputPath} (${content.length} bytes)`);
+  },
+
   async 'help'() {
     console.log(USAGE);
   },
@@ -722,6 +762,7 @@ Commands:
   pages save <path> --file <file>         Save page from local file
   pages delete <path>                     Delete a page
   pages duplicate <source> <target>       Duplicate a page
+  pages download [<dir>]                  Download all pages and assets as tar.gz
 
   components list                         List all components
   components get <name>                   Get component HTML
@@ -738,6 +779,7 @@ Commands:
   assets delete <filename>                Delete an asset
   assets search <query>                   Search assets by name
   assets unused                           List assets not referenced in pages
+  assets download [<dir>]                 Download all assets as tar.gz
 
   publish all                             Publish all drafts
   publish <path>                          Publish a single page
