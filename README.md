@@ -105,7 +105,15 @@ capuzzella domains delete <domain-id>
 capuzzella components list
 capuzzella components get <name>
 capuzzella components save <name> --file ./component.html
+capuzzella components append <name> --file ./variant.html --label "With footer"
 capuzzella components delete <name>
+```
+
+### Theme
+
+```bash
+capuzzella theme get
+capuzzella theme set --theme lux
 ```
 
 ### Skills
